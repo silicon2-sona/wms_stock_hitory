@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import re
 import logging
 import requests
 from typing import Dict, List, Any
@@ -144,67 +143,61 @@ def send_stock_report_to_slack(
     return result
 
 
-
-def _truncate_for_slack(text: str, limit: int = 35000) -> str:
-    # Slack/중간 게이트웨이에서 길이 제한에 걸릴 수 있어서 안전하게 컷
-    if text is None:
-        return ""
-    return text if len(text) <= limit else text[:limit] + "\n\n…(내용이 길어 일부만 전송됨)"
-
-
 def format_stock_report_for_slack(md_report: str) -> str:
+    """
+    마크다운 리포트의 요약 부분만 슬랙 형식으로 변환 (개요까지만)
+    """
     lines = md_report.splitlines()
+    slack_lines = []
 
-    total = changed = change_rate = avg = max_v = min_v = ""
-    inc = dec = ""
-
-    top_items = []
+    # "변동 분석" 섹션의 "변동 방향"까지만 추출
+    found_direction = False
 
     for line in lines:
-        if "총 상품 수" in line:
-            total = re.findall(r"\d[\d,]*", line)[0]
-        elif "변동 상품" in line:
-            changed = re.findall(r"\d[\d,]*", line)[0]
-        elif "변동 비율" in line:
-            change_rate = re.findall(r"[\d.]+%", line)[0]
-        elif "평균 변동폭" in line:
-            avg = re.findall(r"[\d.]+%", line)[0]
-        elif "최대 변동" in line:
-            max_v = re.findall(r"[\d.]+%", line)[0]
-        elif "최소 변동" in line:
-            min_v = re.findall(r"[\d.]+%", line)[0]
-        elif "증가" in line and "개" in line:
-            inc = re.findall(r"\d+", line)[0]
-        elif "감소" in line and "개" in line:
-            dec = re.findall(r"\d+", line)[0]
-        elif line.strip().startswith(tuple(str(i) + "." for i in range(1, 10))):
-            # 상세 목록 파싱
-            parts = line.split("**")
-            if len(parts) >= 3:
-                name = parts[1]
-                diff_match = re.search(r"\((\+?[\d.]+%)\)", line)
-                diff = diff_match.group(1) if diff_match else ""
-                top_items.append(f"{len(top_items)+1}) {name} ({diff})")
+        # "변동 분석" 이후 "변동 방향" 섹션이 끝나면 중단
+        if found_direction and (line.startswith("##") or line.startswith("###")):
+            break
 
-    top_items = top_items[:5]
+        if "변동 방향" in line:
+            found_direction = True
 
-    slack_message = f"""
-📊 *재고 일치율 변동 분석 리포트*
+        # 제목 변환 (# -> *)
+        if line.startswith("# "):
+            slack_lines.append("*" + line[2:].strip() + "*\n")
+        elif line.startswith("## "):
+            slack_lines.append("\n*" + line[3:].strip() + "*")
+        elif line.startswith("### "):
+            slack_lines.append("\n*" + line[4:].strip() + "*")
 
-━━━━━━━━━━━━━━━━━━
-📈 *요약*
-• 총 상품 수: {total}개
-• 변동 상품: {changed}개 ({change_rate})
-• 평균 변동폭: {avg}
-• 최대/최소 변동: {max_v} / {min_v}
+        # 테이블 헤더 구분선 제거
+        elif line.strip().startswith("|---") or line.strip().startswith("| ---"):
+            continue
 
-━━━━━━━━━━━━━━━━━━
-🔁 *변동 방향*
-• 증가: {inc}개
-• 감소: {dec}개
+        # 테이블 행 변환
+        elif line.strip().startswith("|"):
+            cells = [cell.strip() for cell in line.split("|")[1:-1]]
+            slack_lines.append("  " + " | ".join(cells))
 
-━━━━━━━━━━━━━━━━━━
-⚠️ *일치율 증가 TOP 5*
-""" + "\n".join(top_items) + "\n\n(전체 상세는 리포트 참조)"
+        # 일반 리스트
+        elif line.strip().startswith("- "):
+            converted = line.strip()[2:].replace("**", "*")
+            slack_lines.append("  • " + converted)
 
-    return slack_message.strip()
+        # 굵은 글씨 변환 (** -> *)
+        elif "**" in line:
+            converted = line.replace("**", "*")
+            slack_lines.append(converted)
+
+        # 구분선
+        elif line.strip() == "---":
+            slack_lines.append("\n━━━━━━━━━━━━━━━━━━")
+
+        # 빈 줄
+        elif line.strip() == "":
+            slack_lines.append("")
+
+        # 일반 텍스트
+        else:
+            slack_lines.append(line)
+
+    return "\n".join(slack_lines).strip()

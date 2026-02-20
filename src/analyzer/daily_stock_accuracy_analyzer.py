@@ -606,7 +606,39 @@ def main():
         except Exception as e:
             print(f"⚠️ 슬랙 전송 실패: {e}")
 
-    # 6. 완료
+    # 6. Notion 전송 (선택적)
+    send_to_notion = os.getenv("SEND_NOTION_REPORT", "false").lower() == "true"
+    print(f"\n🔍 Notion 전송 체크:")
+    print(f"  SEND_NOTION_REPORT: {os.getenv('SEND_NOTION_REPORT', 'false')} → {send_to_notion}")
+
+    if send_to_notion and len(changed) > 0:
+        print("\n📤 Notion 페이지 생성 중...")
+        try:
+            from pathlib import Path
+            project_root = Path(__file__).resolve().parent.parent.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+
+            from src.reporter.notion_client import send_report_to_notion
+
+            title = f"재고 일치율 변동 분석 ({today_str})"
+            result = send_report_to_notion(
+                markdown_content=md_report,
+                title=title
+            )
+
+            if result.get("success"):
+                print(f"✅ Notion 페이지 생성 완료")
+                print(f"   URL: {result.get('url')}")
+            else:
+                print(f"⚠️ Notion 페이지 생성 실패: {result.get('error')}")
+
+        except ImportError as e:
+            print(f"⚠️ Notion 클라이언트 모듈 로드 실패: {e}")
+        except Exception as e:
+            print(f"⚠️ Notion 전송 실패: {e}")
+
+    # 7. 완료
     print("\n" + "=" * 60)
     print("✅ 분석 완료!")
     print("=" * 60)
