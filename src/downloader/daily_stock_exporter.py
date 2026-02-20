@@ -1,3 +1,10 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+일일 재고 CSV 생성 모듈
+SQL Server에서 재고 데이터를 조회하여 CSV 파일로 저장
+"""
+
 import os
 import sys
 import logging
@@ -259,5 +266,4 @@ def export_stock_data():
 
 if __name__ == "__main__":
     print(f"✅ 실행")
-
     export_stock_data()
