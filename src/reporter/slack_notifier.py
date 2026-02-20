@@ -43,7 +43,7 @@ class SlackNotificationService:
             payload_items: 페이로드 아이템 리스트
                 [
                     {
-                        "msgType": "stockReport",
+                        "msgType": "daily-stock-report",
                         "additionalData": {
                             "targets": [...]
                         }
@@ -210,7 +210,7 @@ def send_stock_report_to_slack(
     slack = SlackNotificationService()
 
     if dm_receiver is None:
-        dm_receiver = os.getenv("SLACK_DM_RECEIVER", "")
+        dm_receiver = os.getenv("SLACK_DM_RECEIVER", "sona@siliconii.net")
 
     if not dm_receiver:
         logger.warning("슬랙 수신자가 설정되지 않았습니다. (SLACK_DM_RECEIVER)")
@@ -230,15 +230,19 @@ def send_stock_report_to_slack(
         }
     ]
 
+
+    title = f"📈 Stock Report ({today_str} vs {yesterday_str})"
+    contents = f"*{title}*\n\n" + _truncate_for_slack(md_report)
+
     # 페이로드 구성
     payload_items = [
         {
-            "msgType": "stockReport",
+            "msgType": "daily-stock-report",
             "additionalData": {
                 "dmReceiver": dm_receiver,
                 "date_from": yesterday_str,
                 "date_to": today_str,
-                "blocks": test_blocks
+                "contents": contents
             }
         }
     ]
@@ -246,9 +250,17 @@ def send_stock_report_to_slack(
     # 전송
     result = slack.send_dm_message(payload_items)
 
-    if result["onResult"] == 1:
+    if result["onResult"] == 0:
         logger.info(f"슬랙 테스트 메시지 전송 완료: {dm_receiver}")
     else:
         logger.error(f"슬랙 테스트 메시지 전송 실패: {result['ovErrDesc']}")
 
     return result
+
+
+
+def _truncate_for_slack(text: str, limit: int = 35000) -> str:
+    # Slack/중간 게이트웨이에서 길이 제한에 걸릴 수 있어서 안전하게 컷
+    if text is None:
+        return ""
+    return text if len(text) <= limit else text[:limit] + "\n\n…(내용이 길어 일부만 전송됨)"

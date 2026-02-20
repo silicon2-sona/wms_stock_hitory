@@ -32,3 +32,6 @@ DATA_SOURCE_API_KEY = os.getenv("DATA_SOURCE_API_KEY", "")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_ROTATION = os.getenv("LOG_ROTATION", "1 day")
 LOG_RETENTION = os.getenv("LOG_RETENTION", "30 days")
+
+
+
