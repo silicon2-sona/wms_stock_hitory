@@ -15,12 +15,12 @@ from scheduler.jobs.db_export_job import run_db_export_job
 def create_scheduler() -> BlockingScheduler:
     scheduler = BlockingScheduler(timezone="Asia/Seoul")
 
-    # DB export 잡: 매일 오전 8시
+    # 일일 재고 CSV 생성: 매일 오전 8시
     scheduler.add_job(
         run_db_export_job,
         trigger=CronTrigger(hour=8, minute=0),
-        id="db_export_job",
-        name="DB 데이터 export",
+        id="daily_stock_csv_job",
+        name="일일 재고 CSV 생성",
         replace_existing=True,
     )
 

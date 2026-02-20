@@ -162,7 +162,6 @@ class DBExporter:
             df_export = pd.DataFrame()
             df_export['상품코드'] = df['prod_cd']
             df_export['상품명'] = df['prod_nm']
-            df_export['브랜드'] = df['brand_nm']
             df_export['CMS 재고'] = df['cms_total_qty']
             df_export['WMS 재고'] = df['wms_total_qty']
             df_export['대기 수량'] = df['waiting_qty']

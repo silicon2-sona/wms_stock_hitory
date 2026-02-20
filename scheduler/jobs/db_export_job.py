@@ -7,11 +7,11 @@ if sys.stdout.encoding != 'utf-8':
 
 
 def run_db_export_job():
-    """스케줄러에 의해 주기적으로 실행되는 DB export 잡"""
-    logger.info("=== [JOB] DB 데이터 export 잡 시작 ===")
+    """스케줄러에 의해 주기적으로 실행되는 일일 재고 CSV 생성 잡"""
+    logger.info("=== [JOB] 일일 재고 CSV 생성 시작 ===")
     try:
-        from src.downloader.db_exporter import export_stock_data
+        from src.downloader.daily_stock_exporter import export_stock_data
         export_stock_data()
-        logger.info("=== [JOB] DB 데이터 export 잡 완료 ===")
+        logger.info("=== [JOB] 일일 재고 CSV 생성 완료 ===")
     except Exception as e:
-        logger.error(f"[JOB] DB export 잡 오류: {e}")
+        logger.error(f"[JOB] 일일 재고 CSV 생성 오류: {e}")

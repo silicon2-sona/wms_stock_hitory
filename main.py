@@ -34,10 +34,10 @@ def main():
     # 명령줄 인자 확인
     if len(sys.argv) > 1 and sys.argv[1] == "export":
         # DB 데이터 내보내기 모드
-        logger.info("DB 데이터 CSV 내보내기 시작")
-        from src.downloader.db_exporter import export_stock_data
+        logger.info("일일 재고 CSV 생성 시작")
+        from src.downloader.daily_stock_exporter import export_stock_data
         export_stock_data()
-        logger.info("DB 데이터 CSV 내보내기 완료")
+        logger.info("일일 재고 CSV 생성 완료")
         return
 
     # 기본 모드: 스케줄러 실행
