@@ -95,16 +95,18 @@ def send_stock_report_to_slack(
     md_report: str,
     today_str: str,
     yesterday_str: str,
-    dm_receiver: str = None
+    dm_receiver: str = None,
+    notion_url: str = None
 ):
     """
-    재고 일치율 변동 레포트를 슬랙으로 전송 (현재 테스트 모드)
+    재고 일치율 변동 레포트를 슬랙으로 전송
 
     Args:
         md_report: 마크다운 레포트 전체 내용
         today_str: 오늘 날짜 문자열
         yesterday_str: 어제 날짜 문자열
         dm_receiver: DM 수신자 이메일 (None이면 환경변수에서 가져옴)
+        notion_url: Notion 페이지 URL (선택적)
     """
     slack = SlackNotificationService()
 
@@ -115,11 +117,12 @@ def send_stock_report_to_slack(
         logger.warning("슬랙 수신자가 설정되지 않았습니다. (SLACK_DM_RECEIVER)")
         return
 
-    # title = f"📈 Stock Report ({today_str} vs {yesterday_str})"
-    # contents = f"*{title}*\n\n" + _truncate_for_slack(md_report)
-
+    # 슬랙 메시지 포맷팅
     slack_contents = format_stock_report_for_slack(md_report)
 
+    # Notion URL이 있으면 메시지 끝에 추가
+    if notion_url:
+        slack_contents += f"\n\n━━━━━━━━━━━━━━━━━━\n📄 *전체 리포트 보기*\n{notion_url}"
 
     # 페이로드 구성
     payload_items = [
@@ -136,9 +139,9 @@ def send_stock_report_to_slack(
     result = slack.send_dm_message(payload_items)
 
     if result["onResult"] == 0:
-        logger.info(f"슬랙 테스트 메시지 전송 완료: {dm_receiver}")
+        logger.info(f"슬랙 메시지 전송 완료: {dm_receiver}")
     else:
-        logger.error(f"슬랙 테스트 메시지 전송 실패: {result['ovErrDesc']}")
+        logger.error(f"슬랙 메시지 전송 실패: {result['ovErrDesc']}")
 
     return result
 

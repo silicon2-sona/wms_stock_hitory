@@ -583,32 +583,11 @@ def main():
     # 4. 리포트 저장
     md_path = save_reports(md_report, csv_report, today_str, OUTPUT_DIR)
 
-    # 5. 슬랙 전송 (선택적)
-    print(f"\n🔍 슬랙 전송 체크:")
-    print(f"  변동 상품 수: {len(changed)}개")
-
-    send_to_slack = os.getenv("SEND_SLACK_NOTIFICATION", "false").lower() == "true"
-    print(f"  SEND_SLACK_NOTIFICATION: {os.getenv('SEND_SLACK_NOTIFICATION', 'false')} → {send_to_slack}")
-
-    if send_to_slack and len(changed) > 0:
-        print("\n📤 슬랙 메시지 전송 중...")
-        try:
-            from pathlib import Path
-            project_root = Path(__file__).resolve().parent.parent.parent
-            if str(project_root) not in sys.path:
-                sys.path.insert(0, str(project_root))
-
-            from src.reporter.slack_notifier import send_stock_report_to_slack
-            result = send_stock_report_to_slack(md_report, today_str, yesterday_str)
-            print(f"✅ 슬랙 전송 완료: {result}")
-        except ImportError as e:
-            print(f"⚠️ 슬랙 전송 모듈 로드 실패: {e}")
-        except Exception as e:
-            print(f"⚠️ 슬랙 전송 실패: {e}")
-
-    # 6. Notion 전송 (선택적)
+    # 5. Notion 전송 (선택적)
+    notion_url = None
     send_to_notion = os.getenv("SEND_NOTION_REPORT", "false").lower() == "true"
     print(f"\n🔍 Notion 전송 체크:")
+    print(f"  변동 상품 수: {len(changed)}개")
     print(f"  SEND_NOTION_REPORT: {os.getenv('SEND_NOTION_REPORT', 'false')} → {send_to_notion}")
 
     if send_to_notion and len(changed) > 0:
@@ -628,8 +607,9 @@ def main():
             )
 
             if result.get("success"):
+                notion_url = result.get('url')
                 print(f"✅ Notion 페이지 생성 완료")
-                print(f"   URL: {result.get('url')}")
+                print(f"   URL: {notion_url}")
             else:
                 print(f"⚠️ Notion 페이지 생성 실패: {result.get('error')}")
 
@@ -637,6 +617,32 @@ def main():
             print(f"⚠️ Notion 클라이언트 모듈 로드 실패: {e}")
         except Exception as e:
             print(f"⚠️ Notion 전송 실패: {e}")
+
+    # 6. 슬랙 전송 (선택적)
+    send_to_slack = os.getenv("SEND_SLACK_NOTIFICATION", "false").lower() == "true"
+    print(f"\n🔍 슬랙 전송 체크:")
+    print(f"  SEND_SLACK_NOTIFICATION: {os.getenv('SEND_SLACK_NOTIFICATION', 'false')} → {send_to_slack}")
+
+    if send_to_slack and len(changed) > 0:
+        print("\n📤 슬랙 메시지 전송 중...")
+        try:
+            from pathlib import Path
+            project_root = Path(__file__).resolve().parent.parent.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+
+            from src.reporter.slack_notifier import send_stock_report_to_slack
+            result = send_stock_report_to_slack(
+                md_report=md_report,
+                today_str=today_str,
+                yesterday_str=yesterday_str,
+                notion_url=notion_url
+            )
+            print(f"✅ 슬랙 전송 완료: {result}")
+        except ImportError as e:
+            print(f"⚠️ 슬랙 전송 모듈 로드 실패: {e}")
+        except Exception as e:
+            print(f"⚠️ 슬랙 전송 실패: {e}")
 
     # 7. 완료
     print("\n" + "=" * 60)
