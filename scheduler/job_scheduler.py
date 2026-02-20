@@ -9,10 +9,20 @@ from config.settings import (
 )
 from scheduler.jobs.download_job import run_download_job
 from scheduler.jobs.report_job import run_report_job
+from scheduler.jobs.db_export_job import run_db_export_job
 
 
 def create_scheduler() -> BlockingScheduler:
     scheduler = BlockingScheduler(timezone="Asia/Seoul")
+
+    # DB export 잡: 20분 간격
+    scheduler.add_job(
+        run_db_export_job,
+        trigger=IntervalTrigger(minutes=20),
+        id="db_export_job",
+        name="DB 데이터 export",
+        replace_existing=True,
+    )
 
     # 다운로드 잡: interval 방식
     scheduler.add_job(

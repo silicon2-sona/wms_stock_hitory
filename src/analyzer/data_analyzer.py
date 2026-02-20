@@ -7,7 +7,7 @@
 
 import sys
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 
@@ -179,22 +179,11 @@ def compare_inventory(yesterday_df, today_df):
         how='outer'
     )
 
-    # 필요한 컬럼만 선택
-    columns_needed = [
-        'prod_cd', 'prod_nm_today',
-        'cms_qty_today', 'wms_qty_today', 'waiting_qty_today', 'accuracy_today',
-        'cms_qty_yesterday', 'wms_qty_yesterday', 'waiting_qty_yesterday', 'accuracy_yesterday'
-    ]
-
-    # 없는 컬럼 제거
-    columns_to_use = [col for col in columns_needed if col in comparison.columns]
-    comparison = comparison[columns_to_use]
-
-    # 컬럼 이름 정리
-    rename_map = {
-        'prod_nm_today': 'prod_nm',
-    }
-    comparison = comparison.rename(columns=rename_map)
+    # 상품명은 오늘 데이터 우선
+    if 'prod_nm_today' in comparison.columns:
+        comparison['prod_nm'] = comparison['prod_nm_today']
+    elif 'prod_nm_yesterday' in comparison.columns:
+        comparison['prod_nm'] = comparison['prod_nm_yesterday']
 
     # 한쪽 날짜에 상품이 없는 경우: 재고 0, 일치율 100으로 처리
     qty_today_cols = [c for c in ['cms_qty_today', 'wms_qty_today', 'waiting_qty_today'] if c in comparison.columns]
@@ -426,45 +415,148 @@ def save_reports(markdown_content, csv_df, date_str, output_dir):
 # 🚀 메인 실행
 # ========================================
 
+def get_latest_csv_files(directory, count=2):
+    """
+    디렉토리에서 최신 CSV 파일들을 찾습니다.
+
+    Args:
+        directory: CSV 파일이 있는 폴더
+        count: 가져올 파일 개수 (기본 2개)
+
+    Returns:
+        최신 파일들의 경로 리스트 (최신순으로 정렬)
+    """
+    import glob
+
+    # CSV 파일 목록 가져오기
+    csv_files = glob.glob(os.path.join(directory, "*.csv"))
+
+    if not csv_files:
+        return []
+
+    # 수정 시간 기준으로 정렬 (최신 파일이 먼저)
+    csv_files.sort(key=os.path.getmtime, reverse=True)
+
+    return csv_files[:count]
+
+
+def load_csv_file_directly(filepath):
+    """
+    CSV 파일을 직접 로드하고 컬럼 정규화
+
+    Args:
+        filepath: CSV 파일 전체 경로
+
+    Returns:
+        정규화된 DataFrame
+    """
+    filename = os.path.basename(filepath)
+    print(f"\n📂 파일 로드: {filename}")
+
+    try:
+        # CSV 읽기 (한글 인코딩)
+        try:
+            df = pd.read_csv(filepath, encoding='utf-8-sig')
+        except UnicodeDecodeError:
+            df = pd.read_csv(filepath, encoding='cp949')
+
+        # 마지막 행 제거 (합계/요약 행이 있을 수 있음)
+        if len(df) > 0:
+            last_row = df.iloc[-1]
+            # 마지막 행이 합계 행인지 확인 (상품코드가 비어있거나 숫자가 아닌 경우)
+            if pd.isna(last_row.get(COL_PROD_CD)) or str(last_row.get(COL_PROD_CD)).strip() == '':
+                df = df.iloc[:-1]
+
+        # 컬럼 정규화 (한글 컬럼명과 영문 컬럼명 모두 지원)
+        rename_map = {}
+
+        # 한글 컬럼명 매핑
+        if COL_PROD_CD in df.columns:
+            rename_map[COL_PROD_CD] = 'prod_cd'
+        if COL_PRODUCT_NAME in df.columns:
+            rename_map[COL_PRODUCT_NAME] = 'prod_nm'
+        if COL_CMS_QTY in df.columns:
+            rename_map[COL_CMS_QTY] = 'cms_qty'
+        if COL_WMS_QTY in df.columns:
+            rename_map[COL_WMS_QTY] = 'wms_qty'
+        if COL_WAITING_QTY in df.columns:
+            rename_map[COL_WAITING_QTY] = 'waiting_qty'
+
+        # DB export 영문 컬럼명 매핑 (이전 버전 파일 지원)
+        if 'cms_total_qty' in df.columns:
+            rename_map['cms_total_qty'] = 'cms_qty'
+        if 'wms_total_qty' in df.columns:
+            rename_map['wms_total_qty'] = 'wms_qty'
+
+        df = df.rename(columns=rename_map)
+
+        # 수치 컬럼 강제 변환
+        for col in ('cms_qty', 'wms_qty', 'waiting_qty'):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        # 일치율 처리
+        if COL_ACCURACY in df.columns:
+            df['accuracy'] = (
+                df[COL_ACCURACY]
+                .astype(str)
+                .str.replace('%', '', regex=False)
+                .str.strip()
+                .apply(lambda x: float(x) if x not in ('', 'nan') else 0.0)
+            )
+        else:
+            df['accuracy'] = df.apply(
+                lambda row: calculate_accuracy(
+                    row.get('cms_qty'),
+                    row.get('wms_qty'),
+                    row.get('waiting_qty')
+                ), axis=1
+            )
+
+        print(f"  ✅ 로드 완료: {len(df)}개 상품")
+        return df
+
+    except Exception as e:
+        print(f"  ❌ 오류: {str(e)}")
+        return None
+
+
 def main():
     print("=" * 60)
     print("📊 재고 일치율 변동 분석 시작")
     print("=" * 60)
 
-    # 날짜 설정
-    today = datetime.now()
-    today_str = today.strftime("%Y-%m-%d")
+    # 1. 최신 CSV 파일 2개 찾기
+    print(f"\n📂 최신 파일 검색 중: {INPUT_DIR}")
+    latest_files = get_latest_csv_files(INPUT_DIR, count=2)
 
-    # 1. 오늘 데이터 로드
-    today_df = load_and_prepare_data(INPUT_DIR, FILE_FORMAT, today)
-    if today_df is None:
-        print("\n❌ 오늘 데이터 로드 실패. 파일을 확인하세요.")
-        print(f"   예상 경로: {INPUT_DIR}/{FILE_FORMAT.replace('{date}', today_str)}")
+    if len(latest_files) < 2:
+        print(f"\n❌ 비교할 파일이 부족합니다. (발견: {len(latest_files)}개, 필요: 2개)")
+        print(f"   경로: {INPUT_DIR}")
         return
 
-    # 2. 전일 데이터 로드 (없으면 최근 7일 내 파일 검색)
-    yesterday_df = None
-    yesterday_str = None
+    today_file = latest_files[0]
+    yesterday_file = latest_files[1]
 
-    for days_ago in range(1, 8):  # 1일 전 ~ 7일 전까지 검색
-        check_date = today - timedelta(days=days_ago)
-        check_str = check_date.strftime("%Y-%m-%d")
+    print(f"\n📋 비교 파일:")
+    print(f"  최신: {os.path.basename(today_file)}")
+    print(f"  이전: {os.path.basename(yesterday_file)}")
 
-        print(f"\n📂 {check_str} 파일 검색 중...")
-        yesterday_df = load_and_prepare_data(INPUT_DIR, FILE_FORMAT, check_date)
+    # 2. 데이터 로드
+    today_df = load_csv_file_directly(today_file)
+    yesterday_df = load_csv_file_directly(yesterday_file)
 
-        if yesterday_df is not None:
-            yesterday_str = check_str
-            print(f"  ✅ 비교 기준일: {yesterday_str} ({days_ago}일 전)")
-            break
-
-    if yesterday_df is None:
-        print("\n❌ 비교할 과거 데이터를 찾을 수 없습니다 (최근 7일 검색)")
+    if today_df is None or yesterday_df is None:
+        print("\n❌ 데이터 로드 실패")
         return
+
+    # 파일 수정 시간으로 날짜 문자열 생성
+    today_str = datetime.fromtimestamp(os.path.getmtime(today_file)).strftime("%Y-%m-%d")
+    yesterday_str = datetime.fromtimestamp(os.path.getmtime(yesterday_file)).strftime("%Y-%m-%d")
 
     print(f"\n📅 비교 날짜")
-    print(f"  기준일: {yesterday_str}")
-    print(f"  오늘: {today_str}")
+    print(f"  이전: {yesterday_str}")
+    print(f"  최신: {today_str}")
     
     # 2. 데이터 비교
     comparison, changed = compare_inventory(yesterday_df, today_df)
