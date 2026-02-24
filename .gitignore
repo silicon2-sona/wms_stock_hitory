@@ -28,7 +28,9 @@ ENV/
 
 # Environment variables
 .env
-.env.local
+.env.*
+config.local.env
+!config.env
 
 # IDE
 .vscode/
@@ -43,6 +45,9 @@ logs/
 
 # Output
 output/
+
+# Deploy
+deploy/
 
 # Data files (exclude actual data, keep directory structure)
 data/raw/*.csv

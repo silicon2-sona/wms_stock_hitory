@@ -11,8 +11,14 @@ import sys
 import pandas as pd
 from datetime import datetime
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import requests
+
+# 프로젝트 루트를 sys.path에 추가 (config 모듈 import를 위해)
+project_root = Path(__file__).resolve().parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 # .env 파일 로드 (환경변수 읽기)
 load_dotenv()
@@ -31,15 +37,24 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ⚙️ 설정 (여기만 수정하면 됨!)
 # ========================================
 
-# CSV 파일이 있는 폴더 (당신의 환경에 맞게 수정)
-INPUT_DIR = "D:/inventory-test/daily-stock" 
+# CSV 파일이 있는 폴더 - config.settings에서 가져오기
+# 환경변수 DB_EXPORT_OUTPUT_DIR을 사용하거나 기본값 사용
+try:
+    from config.settings import DB_EXPORT_OUTPUT_DIR
+    INPUT_DIR = str(DB_EXPORT_OUTPUT_DIR)
+except ImportError as e:
+    # config 모듈 로드 실패 시 환경변수에서 직접 읽기
+    print(f"⚠️ config.settings 로드 실패: {e}")
+    print(f"   환경변수에서 직접 읽습니다.")
+    from config.path_helper import resolve_data_path
+    INPUT_DIR = str(resolve_data_path(os.getenv("DB_EXPORT_OUTPUT_DIR", "output/daily-stock")))
 
 # 리포트 저장 폴더
 OUTPUT_DIR = "./output"
 
 # 파일명 형식 (당신의 파일명에 맞게)
 # 예: Stock2026-02-11.csv
-FILE_FORMAT = "Stock{date}.csv"
+FILE_FORMAT = "Stock_{date}.csv"
 
 # ========================================
 # 📋 CSV 컬럼명 매핑 (파일 컬럼명에 맞게 수정)
@@ -427,24 +442,79 @@ def save_reports(markdown_content, csv_df, date_str, output_dir):
 def get_latest_csv_files(directory, count=2):
     """
     디렉토리에서 최신 CSV 파일들을 찾습니다.
+    성능 최적화: 최근 2개월 폴더만 검색 + 상위 20개만 정렬
 
     Args:
-        directory: CSV 파일이 있는 폴더
+        directory: CSV 파일이 있는 기본 폴더 (월별 폴더의 부모)
         count: 가져올 파일 개수 (기본 2개)
 
     Returns:
         최신 파일들의 경로 리스트 (최신순으로 정렬)
     """
     import glob
+    import re
+    from datetime import datetime, timedelta
 
-    # CSV 파일 목록 가져오기
-    csv_files = glob.glob(os.path.join(directory, "*.csv"))
+    # 현재 월과 이전 월 계산
+    now = datetime.now()
+    current_month = now.strftime("%Y-%m")
+
+    # 이전 월 계산 (월 경계 고려)
+    last_month_date = now.replace(day=1) - timedelta(days=1)
+    last_month = last_month_date.strftime("%Y-%m")
+
+    csv_files = []
+
+    # 현재 월 폴더 검색
+    current_month_dir = os.path.join(directory, current_month)
+    if os.path.exists(current_month_dir):
+        csv_files.extend(glob.glob(os.path.join(current_month_dir, "Stock*.csv")))
+
+    # 이전 월 폴더 검색
+    last_month_dir = os.path.join(directory, last_month)
+    if os.path.exists(last_month_dir):
+        csv_files.extend(glob.glob(os.path.join(last_month_dir, "Stock*.csv")))
+
+    # 월별 폴더가 없는 경우 (레거시) - 루트에서 직접 검색
+    if not csv_files:
+        csv_files = glob.glob(os.path.join(directory, "Stock*.csv"))
 
     if not csv_files:
         return []
 
-    # 수정 시간 기준으로 정렬 (최신 파일이 먼저)
-    csv_files.sort(key=os.path.getmtime, reverse=True)
+    def extract_datetime_from_filename(filepath):
+        """
+        파일명에서 날짜+시간 추출 (Stock_2026-02-23_1430.csv -> 2026-02-23_1430)
+        형식: Stock_{yyyy-mm-dd}_{hhmm}.csv 또는 Stock{yyyy-mm-dd}.csv
+        """
+        filename = os.path.basename(filepath)
+
+        # Stock_{yyyy-mm-dd}_{hhmm} 형식 (시간 포함)
+        match = re.search(r'Stock_?(\d{4}-\d{2}-\d{2})_(\d{4})', filename)
+        if match:
+            return f"{match.group(1)}_{match.group(2)}"
+
+        # Stock_{yyyy-mm-dd} 또는 Stock{yyyy-mm-dd} 형식 (시간 없음)
+        match = re.search(r'Stock_?(\d{4}-\d{2}-\d{2})', filename)
+        if match:
+            return f"{match.group(1)}_0000"  # 시간 없으면 00:00으로 간주
+
+        # 날짜 형식이 없으면 파일명 자체 반환
+        return filename
+
+    # 성능 최적화: 상위 20개만 정렬 후 최신 2개 선택
+    try:
+        # 전체를 정렬하지 않고 상위 20개만 선택
+        if len(csv_files) > 20:
+            # 빠른 부분 정렬 (heapq 사용)
+            import heapq
+            # nlargest는 내림차순이므로 reverse=True 효과
+            csv_files = heapq.nlargest(20, csv_files, key=extract_datetime_from_filename)
+        else:
+            csv_files.sort(key=extract_datetime_from_filename, reverse=True)
+    except:
+        # 날짜 추출 실패 시 수정 시간으로 정렬
+        csv_files.sort(key=os.path.getmtime, reverse=True)
 
     return csv_files[:count]
 
@@ -547,9 +617,34 @@ def main():
     today_file = latest_files[0]
     yesterday_file = latest_files[1]
 
+    # 파일명에서 날짜+시간 추출
+    import re
+    def get_datetime_from_filename(filepath):
+        filename = os.path.basename(filepath)
+
+        # Stock_{yyyy-mm-dd}_{hhmm} 형식 (시간 포함)
+        match = re.search(r'Stock_?(\d{4}-\d{2}-\d{2})_(\d{4})', filename)
+        if match:
+            date_part = match.group(1)
+            time_part = match.group(2)
+            return f"{date_part} {time_part[:2]}:{time_part[2:]}"
+
+        # Stock_{yyyy-mm-dd} 또는 Stock{yyyy-mm-dd} 형식 (시간 없음)
+        match = re.search(r'Stock_?(\d{4}-\d{2}-\d{2})', filename)
+        if match:
+            return f"{match.group(1)} (시간 미상)"
+
+        # 파일명에 날짜가 없으면 수정 시간 사용
+        return datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M")
+
+    today_str = get_datetime_from_filename(today_file)
+    yesterday_str = get_datetime_from_filename(yesterday_file)
+
     print(f"\n📋 비교 파일:")
     print(f"  최신: {os.path.basename(today_file)}")
+    print(f"        일시: {today_str}")
     print(f"  이전: {os.path.basename(yesterday_file)}")
+    print(f"        일시: {yesterday_str}")
 
     # 2. 데이터 로드
     today_df = load_csv_file_directly(today_file)
@@ -558,14 +653,6 @@ def main():
     if today_df is None or yesterday_df is None:
         print("\n❌ 데이터 로드 실패")
         return
-
-    # 파일 수정 시간으로 날짜 문자열 생성
-    today_str = datetime.fromtimestamp(os.path.getmtime(today_file)).strftime("%Y-%m-%d")
-    yesterday_str = datetime.fromtimestamp(os.path.getmtime(yesterday_file)).strftime("%Y-%m-%d")
-
-    print(f"\n📅 비교 날짜")
-    print(f"  이전: {yesterday_str}")
-    print(f"  최신: {today_str}")
     
     # 2. 데이터 비교
     comparison, changed = compare_inventory(yesterday_df, today_df)
@@ -575,19 +662,54 @@ def main():
     
     # 3. 리포트 생성
     print("\n📝 마크다운 리포트 생성 중...")
+    # 리포트용 날짜 문자열 (파일명에 사용하기 위해 yyyy-mm-dd만 추출)
+    report_date = today_str.split()[0]  # "2026-02-23 14:30" -> "2026-02-23"
     md_report = generate_markdown_report(comparison, changed, today_str)
-    
+
     print("📝 CSV 리포트 생성 중...")
-    csv_report = generate_csv_report(changed, today_str)
-    
+    csv_report = generate_csv_report(changed, report_date)
+
     # 4. 리포트 저장
-    md_path = save_reports(md_report, csv_report, today_str, OUTPUT_DIR)
+    md_path = save_reports(md_report, csv_report, report_date, OUTPUT_DIR)
 
-    # 5. 슬랙 전송 (선택적)
-    print(f"\n🔍 슬랙 전송 체크:")
+    # 5. Notion 전송 (선택적)
+    notion_url = None
+    send_to_notion = os.getenv("SEND_NOTION_REPORT", "false").lower() == "true"
+    print(f"\n🔍 Notion 전송 체크:")
     print(f"  변동 상품 수: {len(changed)}개")
+    print(f"  SEND_NOTION_REPORT: {os.getenv('SEND_NOTION_REPORT', 'false')} → {send_to_notion}")
 
+    if send_to_notion and len(changed) > 0:
+        print("\n📤 Notion 페이지 생성 중...")
+        try:
+            from pathlib import Path
+            project_root = Path(__file__).resolve().parent.parent.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+
+            from src.reporter.notion_client import send_report_to_notion
+
+            title = f"재고 일치율 변동 분석 ({report_date})"
+            result = send_report_to_notion(
+                markdown_content=md_report,
+                title=title
+            )
+
+            if result.get("success"):
+                notion_url = result.get('url')
+                print(f"✅ Notion 페이지 생성 완료")
+                print(f"   URL: {notion_url}")
+            else:
+                print(f"⚠️ Notion 페이지 생성 실패: {result.get('error')}")
+
+        except ImportError as e:
+            print(f"⚠️ Notion 클라이언트 모듈 로드 실패: {e}")
+        except Exception as e:
+            print(f"⚠️ Notion 전송 실패: {e}")
+
+    # 6. 슬랙 전송 (선택적)
     send_to_slack = os.getenv("SEND_SLACK_NOTIFICATION", "false").lower() == "true"
+    print(f"\n🔍 슬랙 전송 체크:")
     print(f"  SEND_SLACK_NOTIFICATION: {os.getenv('SEND_SLACK_NOTIFICATION', 'false')} → {send_to_slack}")
 
     if send_to_slack and len(changed) > 0:
@@ -599,14 +721,19 @@ def main():
                 sys.path.insert(0, str(project_root))
 
             from src.reporter.slack_notifier import send_stock_report_to_slack
-            result = send_stock_report_to_slack(md_report, today_str, yesterday_str)
+            result = send_stock_report_to_slack(
+                md_report=md_report,
+                today_str=report_date,
+                yesterday_str=yesterday_str.split()[0] if ' ' in yesterday_str else yesterday_str,
+                notion_url=notion_url
+            )
             print(f"✅ 슬랙 전송 완료: {result}")
         except ImportError as e:
             print(f"⚠️ 슬랙 전송 모듈 로드 실패: {e}")
         except Exception as e:
             print(f"⚠️ 슬랙 전송 실패: {e}")
 
-    # 6. 완료
+    # 7. 완료
     print("\n" + "=" * 60)
     print("✅ 분석 완료!")
     print("=" * 60)

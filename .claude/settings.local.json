@@ -22,7 +22,9 @@
       "Bash(git reset:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nUpdate repository/README.md with full project documentation\n\n전체 프로젝트 문서화 업데이트\n- 전체 파일 구조 추가\n- 주요 기능 상세 설명 (DB export, 최신 파일 비교, 스케줄러)\n- 사용 방법 및 환경 설정 가이드\n- SQL 쿼리 관리 방법\n- 문제 해결 가이드\n- 버전 히스토리 (v1.0 ~ v1.2)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git mv:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cmd /c build.bat)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

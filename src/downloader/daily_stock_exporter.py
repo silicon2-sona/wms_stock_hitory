@@ -44,9 +44,128 @@ class DBExporter:
         self.db_user = os.getenv("DB_USER", "")
         self.db_password = os.getenv("DB_PASSWORD", "")
         self.db_odbc_driver = os.getenv("DB_ODBC_DRIVER", "ODBC Driver 17 for SQL Server")
+
+        # 연결 방식: odbc 또는 native (pymssql/pymysql/psycopg2)
+        self.db_connection_method = os.getenv("DB_CONNECTION_METHOD", "native")
+
         self.output_dir = Path(os.getenv("DB_EXPORT_OUTPUT_DIR", "./data/raw"))
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _execute_query_odbc(self, query):
+        """ODBC를 사용한 쿼리 실행"""
+        import pyodbc
+
+        # 연결 문자열 구성
+        if self.db_port:
+            server = f"{self.db_host},{self.db_port}"
+        else:
+            server = self.db_host
+
+        conn_str = (
+            f"DRIVER={{{self.db_odbc_driver}}};"
+            f"SERVER={server};"
+            f"DATABASE={self.db_name};"
+            f"UID={self.db_user};"
+            f"PWD={self.db_password};"
+        )
+
+        logger.info(f"연결 문자열: {conn_str.replace(self.db_password, '***')}")
+
+        # DB 연결
+        conn = pyodbc.connect(conn_str, timeout=30)
+        cursor = conn.cursor()
+        logger.info("DB 연결 성공")
+
+        # 쿼리 실행
+        logger.info(f"쿼리 실행 중...\n{query[:200]}...")
+        cursor.execute(query)
+
+        # 다중 statement에서 마지막 결과 셋으로 이동
+        while cursor.description is None:
+            if not cursor.nextset():
+                break
+
+        # 결과 가져오기
+        if cursor.description is None:
+            logger.error("쿼리 결과가 없습니다.")
+            cursor.close()
+            conn.close()
+            return None
+
+        columns = [column[0] for column in cursor.description]
+        rows = cursor.fetchall()
+        logger.info(f"쿼리 실행 완료: {len(rows)} rows")
+
+        # DataFrame 생성
+        df = pd.DataFrame.from_records(rows, columns=columns)
+
+        cursor.close()
+        conn.close()
+
+        return df
+
+    def _execute_query_native(self, query):
+        """Native 드라이버를 사용한 쿼리 실행 (pymssql, pymysql, psycopg2)"""
+        if self.db_type == "mssql":
+            import pymssql
+
+            # pymssql 연결
+            conn = pymssql.connect(
+                server=self.db_host,
+                port=int(self.db_port) if self.db_port else 1433,
+                user=self.db_user,
+                password=self.db_password,
+                database=self.db_name,
+                timeout=30
+            )
+            logger.info("DB 연결 성공 (pymssql)")
+
+        elif self.db_type == "mysql":
+            import pymysql
+            conn = pymysql.connect(
+                host=self.db_host,
+                port=int(self.db_port) if self.db_port else 3306,
+                user=self.db_user,
+                password=self.db_password,
+                database=self.db_name,
+                connect_timeout=30
+            )
+            logger.info("DB 연결 성공 (pymysql)")
+
+        elif self.db_type == "postgresql":
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.db_host,
+                port=int(self.db_port) if self.db_port else 5432,
+                user=self.db_user,
+                password=self.db_password,
+                database=self.db_name,
+                connect_timeout=30
+            )
+            logger.info("DB 연결 성공 (psycopg2)")
+
+        else:
+            raise ValueError(f"지원하지 않는 DB 타입: {self.db_type}")
+
+        cursor = conn.cursor()
+
+        # 쿼리 실행
+        logger.info(f"쿼리 실행 중...\n{query[:200]}...")
+        cursor.execute(query)
+
+        # 결과 가져오기
+        columns = [column[0] for column in cursor.description]
+        rows = cursor.fetchall()
+        logger.info(f"쿼리 실행 완료: {len(rows)} rows")
+
+        # DataFrame 생성
+        df = pd.DataFrame.from_records(rows, columns=columns)
+
+        cursor.close()
+        conn.close()
+
+        return df
 
     def get_connection_string(self):
         """SQLAlchemy용 DB 연결 문자열 생성"""
@@ -94,68 +213,33 @@ class DBExporter:
         Returns:
             저장된 파일 경로
         """
-        if filename is None:
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-            filename = f"Stock{timestamp}.csv"
+        now = datetime.now()
 
-        output_path = self.output_dir / filename
+        if filename is None:
+            timestamp = now.strftime("%Y-%m-%d_%H%M")
+            filename = f"Stock_{timestamp}.csv"
+
+        # 월별 폴더 생성 (예: output/daily-stock/2026-02/)
+        monthly_dir = self.output_dir / now.strftime("%Y-%m")
+        monthly_dir.mkdir(parents=True, exist_ok=True)
+
+        output_path = monthly_dir / filename
 
         logger.info(f"DB 데이터 조회 시작: {self.db_name}")
         logger.info(f"DB 타입: {self.db_type}")
         logger.info(f"DB 호스트: {self.db_host}:{self.db_port}")
+        logger.info(f"연결 방식: {self.db_connection_method}")
 
         try:
-            # SQL Server multi-statement 쿼리 지원을 위해 pyodbc 직접 사용
-            import pyodbc
-
-            # 연결 문자열 구성
-            if self.db_port:
-                server = f"{self.db_host},{self.db_port}"  # SQL Server는 쉼표로 포트 구분
+            # 연결 방식에 따라 분기
+            if self.db_connection_method == "odbc":
+                # ODBC 방식
+                logger.info("ODBC 방식으로 연결 중...")
+                df = self._execute_query_odbc(query)
             else:
-                server = self.db_host
-
-            conn_str = (
-                f"DRIVER={{{self.db_odbc_driver}}};"
-                f"SERVER={server};"
-                f"DATABASE={self.db_name};"
-                f"UID={self.db_user};"
-                f"PWD={self.db_password};"
-            )
-
-            logger.info(f"연결 문자열: {conn_str.replace(self.db_password, '***')}")
-            logger.info("DB 연결 중...")
-
-            # DB 연결
-            conn = pyodbc.connect(conn_str, timeout=30)
-            cursor = conn.cursor()
-            logger.info("DB 연결 성공")
-
-            # 쿼리 실행 (multi-statement 지원)
-            logger.info(f"쿼리 실행 중...\n{query[:200]}...")
-            cursor.execute(query)
-
-            # 다중 statement에서 마지막 결과 셋으로 이동
-            while cursor.description is None:
-                if not cursor.nextset():
-                    break
-
-            # 결과 가져오기
-            if cursor.description is None:
-                logger.error("쿼리 결과가 없습니다. SELECT 문을 확인하세요.")
-                cursor.close()
-                conn.close()
-                return None
-
-            columns = [column[0] for column in cursor.description]
-            rows = cursor.fetchall()
-            logger.info(f"쿼리 실행 완료: {len(rows)} rows")
-
-            # DataFrame 생성
-            df = pd.DataFrame.from_records(rows, columns=columns)
-
-            # 연결 종료
-            cursor.close()
-            conn.close()
+                # Native 방식 (pymssql, pymysql, psycopg2)
+                logger.info("Native 드라이버로 연결 중...")
+                df = self._execute_query_native(query)
 
             # 결과 확인
             if df is None or len(df) == 0:
