@@ -24,7 +24,9 @@
       "Bash(git mv:*)",
       "Bash(curl:*)",
       "Bash(cmd /c build.bat)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git rm:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []

@@ -5,12 +5,15 @@ import logging
 import requests
 from typing import Dict, Any, List
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Windows 터미널 cp949 환경에서 UTF-8 출력 가능하도록 강제 설정
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-load_dotenv()
+# 프로젝트 루트의 config.env 파일 로드
+project_root = Path(__file__).resolve().parent.parent.parent
+load_dotenv(project_root / "config.env")
 
 # 로거 설정
 logger = logging.getLogger(__name__)

@@ -5,12 +5,15 @@ import logging
 import requests
 from typing import Dict, Any, List
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Windows 터미널 cp949 환경에서 UTF-8 출력 가능하도록 강제 설정
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-load_dotenv()
+# 프로젝트 루트의 config.env 파일 로드
+project_root = Path(__file__).resolve().parent.parent.parent
+load_dotenv(project_root / "config.env")
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -212,24 +215,69 @@ class NotionClient:
                     "divider": {}
                 })
 
-            # 테이블 (간단 구현 - 테이블을 코드 블록으로 변환)
+            # 테이블 (Notion 테이블로 변환)
             elif line.strip().startswith("|") and i + 1 < len(lines) and "|---" in lines[i + 1]:
-                # 테이블 전체를 코드 블록으로 변환
-                table_lines = [line]
-                i += 1
+                # 테이블 헤더와 데이터 파싱
+                header_line = line.strip()
+                i += 1  # 구분선 스킵
+                i += 1  # 데이터 행으로 이동
+
+                # 헤더 파싱
+                headers = [h.strip() for h in header_line.split("|") if h.strip()]
+
+                # 데이터 행 수집
+                table_rows = []
                 while i < len(lines) and lines[i].strip().startswith("|"):
-                    table_lines.append(lines[i])
+                    row_data = [cell.strip() for cell in lines[i].strip().split("|") if cell.strip()]
+                    if row_data:
+                        table_rows.append(row_data)
                     i += 1
                 i -= 1  # 마지막 라인 조정
 
-                blocks.append({
+                # Notion 테이블 생성 (table 블록)
+                table_width = len(headers)
+                table_block = {
                     "object": "block",
-                    "type": "code",
-                    "code": {
-                        "rich_text": [{"type": "text", "text": {"content": "\n".join(table_lines)}}],
-                        "language": "plain text"
+                    "type": "table",
+                    "table": {
+                        "table_width": table_width,
+                        "has_column_header": True,
+                        "has_row_header": False,
+                        "children": []
+                    }
+                }
+
+                # 헤더 행 추가
+                header_cells = []
+                for header in headers:
+                    header_cells.append(self._parse_rich_text(header))
+                table_block["table"]["children"].append({
+                    "object": "block",
+                    "type": "table_row",
+                    "table_row": {
+                        "cells": header_cells
                     }
                 })
+
+                # 데이터 행 추가
+                for row_data in table_rows:
+                    # 셀 수를 헤더 수에 맞춤
+                    while len(row_data) < table_width:
+                        row_data.append("")
+                    row_data = row_data[:table_width]
+
+                    row_cells = []
+                    for cell in row_data:
+                        row_cells.append(self._parse_rich_text(cell))
+                    table_block["table"]["children"].append({
+                        "object": "block",
+                        "type": "table_row",
+                        "table_row": {
+                            "cells": row_cells
+                        }
+                    })
+
+                blocks.append(table_block)
 
             # 리스트
             elif line.strip().startswith("- "):
@@ -273,18 +321,63 @@ class NotionClient:
 
     def _parse_rich_text(self, text: str) -> List[Dict[str, Any]]:
         """
-        텍스트를 Notion rich_text 형식으로 파싱 (볼드 처리)
+        텍스트를 Notion rich_text 형식으로 파싱 (볼드, 링크 처리)
         """
-        rich_text = []
-        parts = text.split("**")
+        import re
 
-        for idx, part in enumerate(parts):
-            if part:
-                is_bold = idx % 2 == 1  # 홀수 인덱스는 볼드
+        rich_text = []
+
+        # 1단계: 링크와 볼드를 함께 처리
+        # 패턴: **[텍스트](URL)** 또는 [텍스트](URL) 또는 **텍스트**
+        pattern = r'(\*\*\[([^\]]+)\]\(([^)]+)\)\*\*|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*)'
+
+        last_end = 0
+        for match in re.finditer(pattern, text):
+            # 매칭 전 일반 텍스트
+            if match.start() > last_end:
+                plain_text = text[last_end:match.start()]
+                if plain_text:
+                    rich_text.append({
+                        "type": "text",
+                        "text": {"content": plain_text}
+                    })
+
+            # **[텍스트](URL)** 형태 (볼드 + 링크)
+            if match.group(2) and match.group(3):
                 rich_text.append({
                     "type": "text",
-                    "text": {"content": part},
-                    "annotations": {"bold": is_bold} if is_bold else {}
+                    "text": {
+                        "content": match.group(2),
+                        "link": {"url": match.group(3)}
+                    },
+                    "annotations": {"bold": True}
+                })
+            # [텍스트](URL) 형태 (링크만)
+            elif match.group(4) and match.group(5):
+                rich_text.append({
+                    "type": "text",
+                    "text": {
+                        "content": match.group(4),
+                        "link": {"url": match.group(5)}
+                    }
+                })
+            # **텍스트** 형태 (볼드만)
+            elif match.group(6):
+                rich_text.append({
+                    "type": "text",
+                    "text": {"content": match.group(6)},
+                    "annotations": {"bold": True}
+                })
+
+            last_end = match.end()
+
+        # 마지막 남은 텍스트
+        if last_end < len(text):
+            remaining_text = text[last_end:]
+            if remaining_text:
+                rich_text.append({
+                    "type": "text",
+                    "text": {"content": remaining_text}
                 })
 
         # 빈 경우 기본 텍스트 추가

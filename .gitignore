@@ -29,8 +29,8 @@ ENV/
 # Environment variables
 .env
 .env.*
+config.env
 config.local.env
-!config.env
 
 # IDE
 .vscode/

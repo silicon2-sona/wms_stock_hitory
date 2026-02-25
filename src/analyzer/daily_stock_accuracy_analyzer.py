@@ -20,8 +20,8 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# .env 파일 로드 (환경변수 읽기)
-load_dotenv()
+# 프로젝트 루트의 config.env 파일 로드
+load_dotenv(project_root / "config.env")
 
 # Windows 터미널 cp949 환경에서 이모지 출력 가능하도록 utf-8 강제 설정
 if sys.stdout.encoding != 'utf-8':
@@ -252,13 +252,13 @@ def compare_inventory(yesterday_df, today_df):
 def generate_markdown_report(comparison, changed, date_str):
     """
     마크다운 형식의 리포트 생성
-    
+
     Claude AI가 읽기 쉽도록 최적화
     """
-    
+
     total = len(comparison)
     change_count = len(changed)
-    
+
     # 통계
     if change_count > 0:
         avg_change = changed['change_abs'].mean()
@@ -269,9 +269,13 @@ def generate_markdown_report(comparison, changed, date_str):
     else:
         avg_change = max_change = min_change = 0
         increase_count = decrease_count = 0
-    
+
+    # 테스트 모드 체크
+    test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
+    test_prefix = "[TEST] " if test_mode else ""
+
     # 마크다운 작성
-    md = f"""# 📊 재고 일치율 변동 분석 리포트
+    md = f"""# {test_prefix}📊 재고 일치율 변동 분석 리포트
 
 **기준일:** {date_str}  
 **생성일시:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -303,36 +307,52 @@ def generate_markdown_report(comparison, changed, date_str):
     if change_count > 0:
         md += "## ⚠️ 변동 상품 상세\n\n"
 
-        def format_row(idx, row):
-            waiting_today     = float(row.get('waiting_qty_today', 0) or 0)
-            waiting_yesterday = float(row.get('waiting_qty_yesterday', 0) or 0)
-            cms_diff      = float(row['cms_qty_today']) - float(row['cms_qty_yesterday'])
-            # WMS 수량 = wms + waiting, 일치율 정책 기준 물리재고
-            physical_today     = float(row['wms_qty_today']) + waiting_today
-            physical_yesterday = float(row['wms_qty_yesterday']) + waiting_yesterday
-            physical_diff      = physical_today - physical_yesterday
-            return (
-                f"{idx}. **{row['prod_cd']}** | "
-                f"일치율 {row['accuracy_today']:.1f}% ({row['change']:+.1f}%) | "
-                f"CMS {row['cms_qty_today']:.0f} ({cms_diff:+.0f}) | "
-                f"WMS수량 {physical_today:.0f} ({physical_diff:+.0f})\n"
-            )
+        def format_table(df, title):
+            """데이터프레임을 마크다운 표로 변환"""
+            if len(df) == 0:
+                return ""
+
+            # CMS URL 생성
+            cms_url = os.getenv("CMS_URL", "http://localcms.siliconii.com")
+
+            table_md = f"### {title}\n\n"
+            table_md += "| No | 상품코드 | 일치율(어제) | 일치율(오늘) | 변동 | CMS재고 | CMS변동 | WMS수량 | WMS변동 |\n"
+            table_md += "|---:|:---------|-------------:|-------------:|-----:|--------:|--------:|--------:|--------:|\n"
+
+            for idx, (_, row) in enumerate(df.iterrows(), 1):
+                waiting_today = float(row.get('waiting_qty_today', 0) or 0)
+                waiting_yesterday = float(row.get('waiting_qty_yesterday', 0) or 0)
+                cms_diff = float(row['cms_qty_today']) - float(row['cms_qty_yesterday'])
+                physical_today = float(row['wms_qty_today']) + waiting_today
+                physical_yesterday = float(row['wms_qty_yesterday']) + waiting_yesterday
+                physical_diff = physical_today - physical_yesterday
+
+                prod_cd = row['prod_cd']
+                prod_link = f"[{prod_cd}]({cms_url}/WMS/CmsWmsStock?ProdCd={prod_cd})"
+
+                table_md += (
+                    f"| {idx} | **{prod_link}** | "
+                    f"{row['accuracy_yesterday']:.1f}% | "
+                    f"{row['accuracy_today']:.1f}% | "
+                    f"{row['change']:+.1f}% | "
+                    f"{row['cms_qty_today']:.0f} | "
+                    f"{cms_diff:+.0f} | "
+                    f"{physical_today:.0f} | "
+                    f"{physical_diff:+.0f} |\n"
+                )
+
+            table_md += "\n"
+            return table_md
 
         # 일치율 증가 섹션 (변동폭 큰 순)
         increased = changed[changed['change'] > 0].sort_values('change', ascending=False)
         if len(increased) > 0:
-            md += f"### 📈 일치율 증가 ({len(increased)}개)\n\n"
-            for idx, (_, row) in enumerate(increased.iterrows(), 1):
-                md += format_row(idx, row)
-            md += "\n"
+            md += format_table(increased, f"📈 일치율 증가 ({len(increased)}개)")
 
         # 일치율 감소 섹션 (변동폭 큰 순)
         decreased = changed[changed['change'] < 0].sort_values('change', ascending=True)
         if len(decreased) > 0:
-            md += f"### 📉 일치율 감소 ({len(decreased)}개)\n\n"
-            for idx, (_, row) in enumerate(decreased.iterrows(), 1):
-                md += format_row(idx, row)
-            md += "\n"
+            md += format_table(decreased, f"📉 일치율 감소 ({len(decreased)}개)")
     else:
         md += "\n✅ **변동 상품 없음** - 재고가 정상입니다.\n\n"
     
@@ -689,7 +709,10 @@ def main():
 
             from src.reporter.notion_client import send_report_to_notion
 
-            title = f"재고 일치율 변동 분석 ({report_date})"
+            # 테스트 모드 체크
+            test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
+            test_prefix = "[TEST] " if test_mode else ""
+            title = f"{test_prefix}재고 일치율 변동 분석 ({report_date})"
             result = send_report_to_notion(
                 markdown_content=md_report,
                 title=title

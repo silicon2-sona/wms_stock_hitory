@@ -17,7 +17,9 @@ from dotenv import load_dotenv
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-load_dotenv()
+# 프로젝트 루트의 config.env 파일 로드
+project_root = Path(__file__).resolve().parent.parent.parent
+load_dotenv(project_root / "config.env")
 
 logger = logging.getLogger(__name__)
 
