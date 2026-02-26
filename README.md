@@ -11,7 +11,36 @@
 - **Notion 연동**: 전체 리포트를 Notion 데이터베이스에 자동 저장
 - **스케줄러**: 매일 정해진 시간에 자동 실행
 
-## 🚀 빠른 시작
+## � 개발 환경 설정
+
+Git에서 받은 후 로컬에서 실행하려면:
+
+```bash
+# 1. 가상환경 생성
+python -m venv .venv
+
+# 2. 가상환경 활성화 (Windows)
+.venv\Scripts\activate
+
+# 또는 Mac/Linux
+source .venv/bin/activate
+
+# 3. 패키지 설치
+pip install -r requirements.txt
+
+# 4. 설정 파일 생성
+# config.local.env 복사 후 DB 정보 입력
+copy config.env.example config.env
+# 또는 config.local.env 생성 (로컬에서만 사용)
+
+# 5. 즉시 실행 테스트
+python main.py
+```
+
+> **팁**: 개발 중에는 `config.local.env` 파일에 로컬 DB 정보를 입력하면, `config.env`를 덮어써서 사용합니다.
+> (한 번 생성하면 Git에서 무시되므로 실서버 정보와 분리됨)
+
+## �🚀 빠른 시작
 
 ### 1. 빌드
 
