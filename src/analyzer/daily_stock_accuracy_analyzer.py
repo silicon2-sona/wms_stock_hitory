@@ -20,8 +20,10 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# 프로젝트 루트의 config.env 파일 로드
+# 프로젝트 루트의 config.env 파일 로드 (config.local.env 우선)
 load_dotenv(project_root / "config.env")
+if (project_root / "config.local.env").exists():
+    load_dotenv(project_root / "config.local.env", override=True)
 
 # Windows 터미널 cp949 환경에서 이모지 출력 가능하도록 utf-8 강제 설정
 if sys.stdout.encoding != 'utf-8':

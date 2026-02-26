@@ -11,9 +11,11 @@ from pathlib import Path
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-# 프로젝트 루트의 config.env 파일 로드
+# 프로젝트 루트의 config.env 파일 로드 (config.local.env 우선)
 project_root = Path(__file__).resolve().parent.parent.parent
 load_dotenv(project_root / "config.env")
+if (project_root / "config.local.env").exists():
+    load_dotenv(project_root / "config.local.env", override=True)
 
 # 로거 설정
 logger = logging.getLogger(__name__)
