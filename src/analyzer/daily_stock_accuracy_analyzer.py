@@ -748,8 +748,6 @@ def main():
             from src.reporter.slack_notifier import send_stock_report_to_slack
             result = send_stock_report_to_slack(
                 md_report=md_report,
-                today_str=report_date,
-                yesterday_str=yesterday_str.split()[0] if ' ' in yesterday_str else yesterday_str,
                 notion_url=notion_url
             )
             print(f"✅ 슬랙 전송 완료: {result}")

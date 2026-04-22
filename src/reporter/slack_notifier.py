@@ -39,18 +39,16 @@ class SlackNotificationService:
         if not self.base_url:
             logger.warning("COMMON_API_PATH 환경변수가 설정되지 않았습니다.")
 
-    def send_dm_message(self, payload_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def send_channel_message(self, payload_items: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        슬랙 DM 메시지 전송
+        슬랙 채널 메시지 전송
 
         Args:
             payload_items: 페이로드 아이템 리스트
                 [
                     {
-                        "msgType": "daily-stock-report",
-                        "additionalData": {
-                            "targets": [...]
-                        }
+                        "channelType": "daily-stock-report",
+                        "message": "..."
                     }
                 ]
 
@@ -82,45 +80,34 @@ class SlackNotificationService:
 
             response.raise_for_status()
 
-            logger.info(f"슬랙 DM 전송 완료: {response.text}")
+            logger.info(f"슬랙 채널 메시지 전송 완료: {response.text}")
             return {
                 "onResult": 1,
-                "ovErrDesc": f"Slack DM 전송 완료: {response.text}"
+                "ovErrDesc": f"Slack 채널 메시지 전송 완료: {response.text}"
             }
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"슬랙 DM API 호출 실패: {e}")
+            logger.error(f"슬랙 채널 API 호출 실패: {e}")
             return {
                 "onResult": -1,
-                "ovErrDesc": f"Slack DM API 호출 실패: {str(e)}"
+                "ovErrDesc": f"Slack 채널 API 호출 실패: {str(e)}"
             }
 
 
 def send_stock_report_to_slack(
     md_report: str,
-    today_str: str,
-    yesterday_str: str,
-    dm_receiver: str = None,
     notion_url: str = None
 ):
     """
-    재고 일치율 변동 레포트를 슬랙으로 전송
+    재고 일치율 변동 레포트를 슬랙 채널로 전송
 
     Args:
         md_report: 마크다운 레포트 전체 내용
-        today_str: 오늘 날짜 문자열
-        yesterday_str: 어제 날짜 문자열
-        dm_receiver: DM 수신자 이메일 (None이면 환경변수에서 가져옴)
         notion_url: Notion 페이지 URL (선택적)
     """
     slack = SlackNotificationService()
 
-    if dm_receiver is None:
-        dm_receiver = os.getenv("SLACK_DM_RECEIVER", "sona@siliconii.net")
-
-    if not dm_receiver:
-        logger.warning("슬랙 수신자가 설정되지 않았습니다. (SLACK_DM_RECEIVER)")
-        return
+    channel_type = os.getenv("SLACK_CHANNEL_TYPE", "test")
 
     # 슬랙 메시지 포맷팅
     slack_contents = format_stock_report_for_slack(md_report)
@@ -132,19 +119,16 @@ def send_stock_report_to_slack(
     # 페이로드 구성
     payload_items = [
         {
-            "msgType": "daily-stock-report",
-            "dmReceiver": dm_receiver,
-            "date_from": yesterday_str,
-            "date_to": today_str,
-            "contents": slack_contents
+            "channelType": channel_type,
+            "message": slack_contents
         }
     ]
 
     # 전송
-    result = slack.send_dm_message(payload_items)
+    result = slack.send_channel_message(payload_items)
 
     if result["onResult"] == 1:
-        logger.info(f"슬랙 메시지 전송 완료: {dm_receiver}")
+        logger.info(f"슬랙 메시지 전송 완료 (channelType={channel_type})")
     else:
         logger.error(f"슬랙 메시지 전송 실패: {result['ovErrDesc']}")
 
