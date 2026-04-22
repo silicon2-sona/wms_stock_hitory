@@ -15,7 +15,7 @@ echo Done
 echo.
 
 echo [2/6] Building with PyInstaller...
-pyinstaller --clean wms-stock-scheduler.spec
+python -m PyInstaller --clean wms-stock-scheduler.spec
 if %errorlevel% neq 0 (
     echo Build failed!
     pause

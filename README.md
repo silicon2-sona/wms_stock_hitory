@@ -51,17 +51,60 @@ python main.py
 build.bat
 ```
 
-`deploy` 폴더가 생성됩니다.
+`build.bat` 을 실행하면 다음 단계가 자동으로 진행됩니다:
+
+1. **이전 빌드 정리** — `dist/`, `build/`, `deploy/` 폴더 삭제
+2. **PyInstaller 빌드** — `wms-stock-scheduler.spec` 기반으로 `dist/WMS-Stock-Scheduler.exe` 생성
+3. **deploy 폴더 생성** — 배포용 폴더 구조 초기화
+4. **실행파일 복사** — `dist/` 의 exe 를 `deploy/` 로 이동
+5. **설정/쿼리 복사** — `config.env` 와 `repository/stock_export.sql` 을 `deploy/` 로 복사
+   - ⚠️ `config.env` 파일이 없으면 복사가 스킵되므로, 빌드 전 `config.env.example` 을 복사해 두세요
+6. **사용 가이드 생성** — `deploy/README.txt` 생성
+
+> 사전 요구: PyInstaller 설치 필요 (`pip install pyinstaller`). 빌드 후 결과물은 `deploy/` 폴더에 모입니다.
 
 ### 2. 설정
 
-`config.env` 파일을 열어 DB 정보 입력:
+`config.env` 파일을 열어 아래 항목을 입력합니다. (개발 중에는 `config.local.env` 에 입력하면 `config.env` 를 덮어써서 사용됩니다)
+
+#### 필수 — 데이터베이스
 
 ```env
-DB_HOST=your-database-host
+DB_TYPE=mssql
+DB_HOST=your-server.com
+DB_PORT=1433
 DB_NAME=CMSGLOBAL
-DB_USER=your-username
-DB_PASSWORD=your-password
+DB_USER=username
+DB_PASSWORD=password
+```
+
+#### 필수 — 스케줄 시간
+
+```env
+DB_EXPORT_HOUR=8         # DB Export 실행 시간
+DB_EXPORT_MINUTE=0
+REPORT_HOUR=8            # 리포트 생성 시간
+REPORT_MINUTE=30
+```
+
+#### 선택 — Slack 알림
+
+```env
+SEND_SLACK_NOTIFICATION=true
+COMMON_API_PATH=https://your-api.com
+SLACK_CHANNEL_TYPE=daily-stock-report   # 운영. 테스트 시에는 test
+```
+
+- `SLACK_CHANNEL_TYPE` 은 공통 API 가 메시지를 전송할 슬랙 채널을 결정하는 키입니다.
+- 운영 값 `daily-stock-report` 는 **재고동기화 채널**에 연결돼 있어야 합니다. (공통 API 측 채널 매핑 설정 필요)
+- 로컬/스테이징에서 검증 시에는 `test` 를 사용해 실제 운영 채널로 메시지가 가지 않도록 합니다.
+
+#### 선택 — Notion 연동
+
+```env
+SEND_NOTION_REPORT=true
+NOTION_API_TOKEN=ntn_xxxxx
+NOTION_DATABASE_ID=xxxxx
 ```
 
 ### 3. 실행
@@ -104,44 +147,6 @@ WMS-Stock-Scheduler-Deploy/
 │       └── 2026-03/
 └── logs/                      # 자동 생성
     └── app_2026-02-23.log
-```
-
-## ⚙️ 설정 가이드
-
-### 필수 설정
-
-**데이터베이스** (`config.env`)
-```env
-DB_TYPE=mssql
-DB_HOST=your-server.com
-DB_PORT=1433
-DB_NAME=CMSGLOBAL
-DB_USER=username
-DB_PASSWORD=password
-```
-
-**스케줄 시간**
-```env
-DB_EXPORT_HOUR=8         # DB Export 실행 시간
-DB_EXPORT_MINUTE=0
-REPORT_HOUR=8            # 리포트 생성 시간
-REPORT_MINUTE=30
-```
-
-### 선택 설정
-
-**Slack 알림**
-```env
-SEND_SLACK_NOTIFICATION=true
-COMMON_API_PATH=https://your-api.com
-SLACK_DM_RECEIVER=your-email@company.com
-```
-
-**Notion 연동**
-```env
-SEND_NOTION_REPORT=true
-NOTION_API_TOKEN=ntn_xxxxx
-NOTION_DATABASE_ID=xxxxx
 ```
 
 ## 💡 사용 팁
