@@ -28,7 +28,10 @@
       "Bash(git rm:*)",
       "Bash(git stash:*)",
       "Bash(awk -F',' '{print $1}' \"d:/sonasource/SONA/wms_stock_hitory/data/agv4_snapshots/agv4_inventory_snapshots.csv\")",
-      "Bash(grep -iE \"\\\\.env|env$\")"
+      "Bash(grep -iE \"\\\\.env|env$\")",
+      "mcp__notionApi__API-retrieve-a-page",
+      "mcp__notionApi__API-patch-block-children",
+      "mcp__notionApi__API-get-block-children"
     ],
     "deny": [],
     "ask": []

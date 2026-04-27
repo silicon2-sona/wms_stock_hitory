@@ -4,10 +4,11 @@
 AGV 4층 VNA 섹션 방치 재고 우선순위 분석기 (A안)
 
 데이터 소스 (사용자가 CSMS_DB_MIRROR에서 아래 쿼리로 추출):
-    SELECT *
-      FROM CSMS_DB_MIRROR.DBO.TB_WS_AGV_INVENTORY
-     WHERE pod_vn_no NOT LIKE 'POD%'
-       AND ws_inv_dt > '2026-01-01'
+    repository/vna_static_stock_export.sql
+        SELECT *
+          FROM CSMS_DB_MIRROR.DBO.TB_WS_AGV_INVENTORY
+         WHERE pod_vn_no NOT LIKE 'POD%'
+           AND ws_inv_dt > '2026-01-01'
 
 입력 CSV (헤더 없음) — 컬럼 순서:
     스냅샷날짜, AGV코드, VNA번호, 상품코드, 유효기간, 수량, 스냅샷등록일
