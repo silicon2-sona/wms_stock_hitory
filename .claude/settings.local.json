@@ -26,7 +26,9 @@
       "Bash(cmd /c build.bat)",
       "Bash(git push:*)",
       "Bash(git rm:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(awk -F',' '{print $1}' \"d:/sonasource/SONA/wms_stock_hitory/data/agv4_snapshots/agv4_inventory_snapshots.csv\")",
+      "Bash(grep -iE \"\\\\.env|env$\")"
     ],
     "deny": [],
     "ask": []
